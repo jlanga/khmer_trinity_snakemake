@@ -1,0 +1,7 @@
+.gios*
+.snakemake/
+benchmarks/
+data/fastq_norm/
+data/fastq_trimmed/
+logs/
+src/
