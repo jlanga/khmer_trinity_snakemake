@@ -30,7 +30,7 @@ rule clean:
         """
         rm -rf data/fastq_trimmed
         rm -rf data/fastq_norm
-        rm -rf data/fastq_assembly
+        rm -rf data/assembly
         rm -rf logs
         rm -rf benchmarks
         """
@@ -76,7 +76,7 @@ rule QC_trimmomatic_pe:
             >({gzip} -9 > {output.reverse} ) \
             {params.unpaired_2} \
             ILLUMINACLIP:{params.adaptor}:2:30:10 \
-            {params.trimmomatic_params}
+            {params.trimmomatic_params} \
             2> {log}
             
         zcat {params.unpaired_1} {params.unpaired_2}    |
@@ -419,7 +419,7 @@ rule assembly_run_trinity:
         memory= config["trinity_params"]["memory"],
         outdir= ASSEMBLY_DIR + "/trinity_out_dir"
     log:
-        "log/assembly/run_trinity.log"
+        "logs/assembly/run_trinity.log"
     benchmark:
         "benchmark/assembly/run_trinity.log"
     shell:
