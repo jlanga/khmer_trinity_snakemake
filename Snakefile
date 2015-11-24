@@ -23,11 +23,7 @@ gzip        = config["software"]["gzip"]
 
 rule all:
     input:
-        expand(
-            NORM_DIR + "/{sample}.final.{pair}.fq.gz",
-            sample = SAMPLES_PE,
-            pair = PAIRS
-        )
+        fasta = ASSEMBLY_DIR + "/Trinity.fasta"
 
 rule clean:
     shell:
@@ -307,7 +303,7 @@ rule diginorm_filter_abund:
     params:
         ""
     log:
-        "logs/diginorm_filter_abund_{sample}_{pair}.log"
+        "logs/diginorm/filter_abund_{sample}_{pair}.log"
     benchmark:
         "benchmarks/diginorm_filter_abunt_{sample}_{pair}.json"
     shell:
@@ -366,4 +362,77 @@ rule diginorm_merge_single_reads:
         cp {input.from_norm} {output.fastq}
         {gzip} -dc {input.from_paired} |
         {gzip} -9 >> {output.fastq} 
+        """
+
+
+
+rule assembly_prepare_reads:
+    input:
+        pe = expand(
+            NORM_DIR + "/{sample}.final.pe.fq.gz",
+            sample = SAMPLES_PE
+        ),
+        se = expand(
+            NORM_DIR + "/{sample}.final.se.fq.gz",
+            sample = SAMPLES_PE
+        )
+    output:
+        left  = temp(ASSEMBLY_DIR + "/left.fq"),
+        right = temp(ASSEMBLY_DIR + "/right.fq")
+    threads:
+        1
+    params:
+        orphans = ASSEMBLY_DIR + "/orphans.fq"
+    log:
+        "logs/assembly/prepare_reads.log"
+    benchmark:
+        "benchmarks/assembly/prepare_reads.json"
+    shell:
+        """
+        cat /dev/null > {output.left}
+        cat /dev/null > {output.right}
+        
+        ./bin/split-paired-reads.py \
+            --output-orphaned {params.orphans} \
+            --output-first {output.left} \
+            --output-second {output.right} \
+            <({gzip} -dc {input.pe} ) \
+        > {log} 2>&1
+        
+        {gzip} -dc {input.se} >> {output.left}
+        
+        cat {params.orphans} >> {output.left}
+        rm {params.orphans}
+        """
+
+
+
+rule assembly_run_trinity:
+    input:
+        left  = ASSEMBLY_DIR + "/left.fq",
+        right = ASSEMBLY_DIR + "/right.fq"
+    output:
+        fasta = protected(ASSEMBLY_DIR + "/Trinity.fasta")
+    threads:
+        24
+    params:
+        memory= config["trinity_params"]["memory"],
+        outdir= ASSEMBLY_DIR + "/trinity_out_dir"
+    log:
+        "log/assembly/run_trinity.log"
+    benchmark:
+        "benchmark/assembly/run_trinity.log"
+    shell:
+        """
+        ./bin/Trinity \
+            --seqType fq \
+            --max_memory {params.memory} \
+            --left {input.left} \
+            --right {input.right} \
+            --CPU {threads} \
+            --full_cleanup \
+            --output {params.outdir} \
+        > {log}
+        
+        mv {params.outdir}.Trinity.fasta {output.fasta}
         """

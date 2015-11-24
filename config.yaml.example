@@ -40,5 +40,5 @@ diginorm_params:
     max_tablesize: "3e9" # 4 tables * 3e9 (~3GB) ~ 12Gb
 
 trinity_params:
-    memory:     6G
-    additional: --normalize_reads
+    memory:     10G
+
