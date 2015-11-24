@@ -61,7 +61,7 @@ pushd trinityrnaseq-2.1.1
 make -j 24
 make -j 24 plugins
 make -j 24 test_all
-ln -s src/trinityrnaseq-2.1.1/Trinity ../../bin/Trinity
+ln -s ../src/trinityrnaseq-2.1.1/Trinity ../../bin/Trinity
 popd
 
 
