@@ -52,3 +52,36 @@ pushd fastx_toolkit-0.0.13.2/
 ./configure --prefix=$(pwd)/../.. && make && make install
 
 
+
+# Trinity
+curl -L -O https://github.com/trinityrnaseq/trinityrnaseq/archive/v2.1.1.tar.gz
+tar xzvf v2.1.1.tar.gz
+rm v2.1.1.tar.gz
+pushd trinityrnaseq-2.1.1
+make -j 24
+make -j 24 plugins
+make -j 24 test_all
+ln -s src/trinityrnaseq-2.1.1/Trinity ../../bin/Trinity
+popd
+
+
+
+# Bowtie
+curl -O -L http://sourceforge.net/projects/bowtie-bio/files/bowtie/0.12.7/bowtie-0.12.7-linux-x86_64.zip
+unzip bowtie-0.12.7-linux-x86_64.zip
+rm bowtie-0.12.7-linux-x86_64.zip
+pushd bowtie-0.12.7
+cp bowtie bowtie-build bowtie-inspect ../../bin
+popd
+
+
+
+# samtools
+curl -L http://sourceforge.net/projects/samtools/files/latest/download?source=files >samtools.tar.bz2
+tar xvjf samtools.tar.bz2
+rm samtools.tar.bz2
+mv samtools-* samtools-latest
+pushd samtools-latest/
+make -j 24
+cp samtools ../../bin
+popd
