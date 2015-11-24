@@ -24,9 +24,9 @@ gzip        = config["software"]["gzip"]
 rule all:
     input:
         expand(
-            TRIM_DIR + "/{sample}.final.{pairs}.fq.gz",
+            NORM_DIR + "/{sample}.final.{pair}.fq.gz",
             sample = SAMPLES_PE,
-            pairs = PAIRS
+            pair = PAIRS
         )
 
 rule clean:
@@ -193,34 +193,177 @@ rule QC_filter_and_merge_se:
 
 
 
-rule diginorm_normalize_by_median_pe:
+rule diginorm_load_into_counting:
     input:
-        pe_reads = expand(
-            TRIM_DIR + "/{sample}.final.pe.fq.gz",
-            sample = SAMPLES_PE)
+        fastqs = expand(
+            TRIM_DIR + "/{sample}.final.{pair}.fq.gz",
+            sample = SAMPLES_PE,
+            pair = PAIRS
+        )
     output:
-        table        = NORM_DIR + "/hash_table.kh", 
-        
+        table = temp(NORM_DIR + "/diginorm_table.kh"),
+        info  = temp(NORM_DIR + "/diginorm_table.kh.info")
     threads:
-        1
-    params:
-        ksize         = config["diginorm_params"]["ksize"],
-        cutoff        = config["diginorm_params"]["cutoff"],
-        n_tables      = config["diginorm_params"]["n_tables"],
-        max_tablesize = config["diginorm_params"]["max_tablesize"]
+        24
     log:
-        "logs/diginorm/normalize_by_median_pe.log"
+        "logs/diginorm/load_into_counting.log"
     benchmark:
-        "benchmarks/diginorm/normalize_by_median_pe.json"
+        "benchmarks/diginorm/load_into_counting.json"
+    params:
+        ksize=         config["diginorm_params"]["ksize"],
+        max_tablesize= config["diginorm_params"]["max_tablesize"],
+        n_tables=      config["diginorm_params"]["n_tables"]
     shell:
         """
-        ./bin/normalize-by-median.py \
-            --paired \
+        ./bin/load-into-counting.py \
             --ksize {params.ksize} \
-            --cutoff {params.cutoff} \
             --n_tables {params.n_tables} \
-            --max-tablesize {params.min_tablesize} \
-            --savegraph {output.table} \
-            {input.pe_reads}
-        mv test{1..8}.hq.pe.fastq.gz.keep ${NORM_DIR}/
+            --max-tablesize {params.max_tablesize} \
+            --threads {threads} \
+            --no-bigcount \
+            {output.table} \
+            {input.fastqs} \
+        2>  {log}
+        """
+
+
+
+rule diginorm_normalize_by_median_pe:
+    """
+    Normalizes by median EACH FILE.
+    Therefore one loads once per file the hash table.
+    """
+    input:
+        fastq = TRIM_DIR + "/{sample}.final.pe.fq.gz",
+        table = NORM_DIR + "/diginorm_table.kh"
+    output:
+        fastq = temp(NORM_DIR + "/{sample}.keep.pe.fq.gz")
+    threads:
+        24 # Block RAM
+    params:
+        cutoff = config["diginorm_params"]["cutoff"]
+    log:
+        "logs/diginorm/normalize_by_median_pe_{sample}.log"
+    benchmark:
+        "benchmarks/diginorm/normalize_by_median_pe_{sample}.json"
+    shell:
+        """
+        ( ./bin/normalize-by-median.py \
+            --paired \
+            --loadgraph {input.table} \
+            --cutoff {params.cutoff} \
+            --output - \
+            {input.fastq} |
+        pigz -9 \
+        > {output.fastq} ) \
+        2> {log}
+        """
+
+
+
+rule diginorm_normalize_by_median_se:
+    """
+    Normalizes by median EACH FILE.
+    Therefore one loads once per file the hash table.
+    """
+    input:
+        fastq = TRIM_DIR + "/{sample}.final.se.fq.gz",
+        table = NORM_DIR + "/diginorm_table.kh"
+    output:
+        fastq = temp(NORM_DIR + "/{sample}.keep.se.fq.gz")
+    threads:
+        24 # Block excessive RAM usage
+    params:
+        cutoff = config["diginorm_params"]["cutoff"]
+    log:
+        "logs/diginorm/normalize_by_median_se_{sample}.log"
+    benchmark:
+        "benchmarks/diginorm/normalize_by_median_se_{sample}.json"
+    shell:
+        """
+        ( ./bin/normalize-by-median.py \
+            --loadgraph {input.table} \
+            --cutoff {params.cutoff} \
+            --output - \
+            {input.fastq} |
+        {gzip} -9 \
+        > {output.fastq} ) \
+        2> {log}
+        """
+
+
+
+rule diginorm_filter_abund:
+    """
+    Removes erroneus k-mers.
+    """
+    input:
+        fastq = NORM_DIR + "/{sample}.keep.{pair}.fq.gz",
+        table = NORM_DIR + "/diginorm_table.kh"
+    output:
+        fastq = temp(NORM_DIR + "/{sample}.abundfilt.{pair}.fq.gz")
+    threads:
+        24
+    params:
+        ""
+    log:
+        "logs/diginorm_filter_abund_{sample}_{pair}.log"
+    benchmark:
+        "benchmarks/diginorm_filter_abunt_{sample}_{pair}.json"
+    shell:
+        """
+        ( ./bin/filter-abund.py \
+            --variable-coverage \
+            --threads {threads} \
+            --output - \
+            {input.table} \
+            {input.fastq} |
+        {gzip} -9 \
+        > {output.fastq} ) \
+        2> {log}
+        """
+
+
+
+rule diginorm_extract_paired_reads:
+    input:
+        fastq = NORM_DIR + "/{sample}.abundfilt.pe.fq.gz"
+    output:
+        fastq_pe = NORM_DIR + "/{sample}.final.pe.fq.gz",
+        fastq_se = temp(NORM_DIR + "/{sample}.temp.pe.fq.gz")
+    threads:
+        1
+    log:
+        "logs/diginorm/extract_paired_reads_{sample}.log"
+    benchmark:
+        "benchmarks/diginorm/extract_paired_reads_{sample}.json"
+    shell:
+        """
+        ./bin/extract-paired-reads.py \
+            --output-paired {output.fastq_pe} \
+            --output-single {output.fastq_se} \
+            --gzip \
+            {input.fastq} \
+        2> {log}
+        """
+
+
+
+rule diginorm_merge_single_reads:
+    input:
+        from_norm=   NORM_DIR + "/{sample}.abundfilt.se.fq.gz",
+        from_paired= NORM_DIR + "/{sample}.temp.pe.fq.gz"
+    output:
+        fastq = NORM_DIR + "/{sample}.final.se.fq.gz"
+    threads:
+        1
+    log:
+        "logs/diginorm/merge_single_reads_{sample}.log"
+    benchmark:
+        "benchmarks/diginorm/merge_single_reads_{sample}.json"
+    shell:
+        """
+        cp {input.from_norm} {output.fastq}
+        {gzip} -dc {input.from_paired} |
+        {gzip} -9 >> {output.fastq} 
         """
