@@ -25,6 +25,8 @@ rule all:
     input:
         fasta = ASSEMBLY_DIR + "/Trinity.fasta"
 
+
+
 rule clean:
     shell:
         """
@@ -51,7 +53,7 @@ rule QC_trimmomatic_pe:
     output:
         forward     = temp(TRIM_DIR + "/{sample}_1.fq.gz"),
         reverse     = temp(TRIM_DIR + "/{sample}_2.fq.gz"),
-        unpaired    = temp(TRIM_DIR + "/{sample}.se.fq.gz")
+        unpaired    = protected(TRIM_DIR + "/{sample}.final.se.fq.gz")
     params:
         unpaired_1  = TRIM_DIR + "/{sample}_3.fq.gz",
         unpaired_2  = TRIM_DIR + "/{sample}_4.fq.gz",
@@ -90,7 +92,7 @@ rule QC_trimmomatic_pe:
 # rule QC_trimmomatic_se # Not dealing with SE reads from the sequencer
 
 
-rule QC_interleave_and_filter_pe:
+rule QC_interleave_pe:
     """
     From the adaptor free _1 and _2 , interleave the reads.
     Pipe the inputs, interleave, filter the stream and compress.
@@ -99,92 +101,20 @@ rule QC_interleave_and_filter_pe:
         forward= TRIM_DIR + "/{sample}_1.fq.gz",
         reverse= TRIM_DIR + "/{sample}_2.fq.gz"
     output:
-        interleaved= temp(TRIM_DIR + "/{sample}.qc.pe.fq.gz")
+        interleaved= protected(TRIM_DIR + "/{sample}.final.pe.fq.gz")
     threads:
-        4
-    params:
-            minimum_quality= config["fastx_params"]["minimum_quality"],
-            minimum_percent_quality= config["fastx_params"]["minimum_percent_quality"],
-            minimum_length= config["fastx_params"]["minimum_length"]
+        2
     log:
-        "logs/qc/interleave_and_filter_{sample}.log"
+        "logs/qc/interleave_pe_{sample}.log"
     benchmark:
-        "benchmarks/qc/interleave_and_filter_{sample}.json"
+        "benchmarks/qc/interleave_pe_{sample}.json"
     shell:
         """
         ( python bin/interleave-reads.py \
             <({gzip} -dc {input.forward} | cut -f 1 -d " ") \
             <({gzip} -dc {input.reverse} | cut -f 1 -d " ") |
-        ./bin/fastq_quality_filter \
-            -Q33 \
-            -q {params.minimum_quality} \
-            -p {params.minimum_percent_quality} |
         {gzip} -9 > {output.interleaved} ) \
         2> {log}
-        """
-
-
-
-rule QC_extract_pe_and_se_reads:
-    """
-    Extract PE and SE reads from the QC_interleave_and_filter_pe rule.
-    """
-    input:
-        interleaved= TRIM_DIR + "/{sample}.qc.pe.fq.gz"
-    output:
-        paired= protected(TRIM_DIR + "/{sample}.final.pe.fq.gz"),
-        single= temp(TRIM_DIR + "/{sample}.qc.se.fq.gz")
-    params:
-        ""
-    threads:
-        1
-    log:
-        "logs/qc/extract_paired_reads_{sample}.log"
-    benchmark:
-        "benchmarks/qc/extract_paired_reads_{sample}.json"
-    shell:
-        """
-        python bin/extract-paired-reads.py \
-            --output-paired {output.paired} \
-            --output-single {output.single} \
-            --gzip \
-            {input.interleaved} \
-        2> {log}
-        """
-
-
-
-rule QC_filter_and_merge_se:
-    """
-    Filter the SE set of reads from the QC_trimmomatic_pe rule and merge it with the SE reads from the QC_extract_pe_and_se_reads.
-    """
-    input:
-        without_qc = TRIM_DIR + "/{sample}.se.fq.gz",
-        with_qc    = TRIM_DIR + "/{sample}.qc.se.fq.gz"
-    output:
-        fastq      = protected(TRIM_DIR + "/{sample}.final.se.fq.gz")
-    threads:
-        1
-    params:
-        minimum_quality= config["fastx_params"]["minimum_quality"],
-        minimum_percent_quality= config["fastx_params"]["minimum_percent_quality"],
-        minimum_length= config["fastx_params"]["minimum_length"]
-    log:
-        "logs/qc/filter_and_merge_se_{sample}.log"
-    benchmark:
-        "benchmarks/qc/filter_and_merge_pe_{sample}.json"
-    shell:
-        """
-        cp {input.with_qc} {output.fastq}
-        
-        ( {gzip} -dc {input.without_qc} |
-        ./bin/fastq_quality_filter \
-            fastq_quality_filter \
-            -Q33 \
-            -q {params.minimum_quality} \
-            -p {params.minimum_percent_quality} |
-         {gzip} -9 >> {output.fastq} ) \
-         2> {log}
         """
 
 
@@ -325,7 +255,7 @@ rule diginorm_extract_paired_reads:
     input:
         fastq = NORM_DIR + "/{sample}.abundfilt.pe.fq.gz"
     output:
-        fastq_pe = NORM_DIR + "/{sample}.final.pe.fq.gz",
+        fastq_pe = protected(NORM_DIR + "/{sample}.final.pe.fq.gz"),
         fastq_se = temp(NORM_DIR + "/{sample}.temp.pe.fq.gz")
     threads:
         1
@@ -350,7 +280,7 @@ rule diginorm_merge_single_reads:
         from_norm=   NORM_DIR + "/{sample}.abundfilt.se.fq.gz",
         from_paired= NORM_DIR + "/{sample}.temp.pe.fq.gz"
     output:
-        fastq = NORM_DIR + "/{sample}.final.se.fq.gz"
+        fastq = protected(NORM_DIR + "/{sample}.final.se.fq.gz")
     threads:
         1
     log:
@@ -389,9 +319,6 @@ rule assembly_prepare_reads:
         "benchmarks/assembly/prepare_reads.json"
     shell:
         """
-        cat /dev/null > {output.left}
-        cat /dev/null > {output.right}
-        
         ./bin/split-paired-reads.py \
             --output-orphaned {params.orphans} \
             --output-first {output.left} \

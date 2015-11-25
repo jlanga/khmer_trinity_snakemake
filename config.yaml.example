@@ -22,16 +22,8 @@ software:
     trimmomatic:    java -jar bin/trimmomatic-0.33.jar
     gzip:           pigz
 
-urls:
-    trinity: https://github.com/trinityrnaseq/trinityrnaseq/archive/v2.1.1.tar.gz
-
 trimmomatic_params:
     LEADING:20 TRAILING:20 AVGQUAL:30 MINLEN:27 TOPHRED33
-
-fastx_params:
-    minimum_quality:         "30"
-    minimum_percent_quality: "50"
-    minimum_length:          "30"
 
 diginorm_params: 
     ksize:         "20"

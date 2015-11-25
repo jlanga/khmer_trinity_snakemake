@@ -35,23 +35,6 @@ cp Trimmomatic-0.33/trimmomatic-0.33.jar
 cp Trimmomatic-0.33/adapters/*.fa ../data/adapters/
 
 
-# libgtexutils
-curl -O http://hannonlab.cshl.edu/fastx_toolkit/libgtextutils-0.6.1.tar.bz2
-tar xvjf libgtextutils-0.6.1.tar.bz2
-rm libgtextutils-0.6.1.tar.bz2
-pushd libgtextutils-0.6.1/
-./configure --prefix=$(pwd)/../.. && make
-popd
-
-
-# fastx-toolkit
-curl -O http://hannonlab.cshl.edu/fastx_toolkit/fastx_toolkit-0.0.13.2.tar.bz2
-tar xjvf fastx_toolkit-0.0.13.2.tar.bz2
-rm fastx_toolkit-0.0.13.2.tar.bz2
-pushd fastx_toolkit-0.0.13.2/
-./configure --prefix=$(pwd)/../.. && make && make install
-
-
 
 # Trinity
 curl -L -O https://github.com/trinityrnaseq/trinityrnaseq/archive/v2.1.1.tar.gz
