@@ -23,13 +23,16 @@ software:
     gzip:           pigz
 
 trimmomatic_params:
-    LEADING:20 TRAILING:20 AVGQUAL:30 MINLEN:27 TOPHRED33
+    LEADING:20 TRAILING:20 AVGQUAL:30 MINLEN:32 TOPHRED33
 
-diginorm_params: 
-    ksize:         "32"
+
+# Consider this if you change the values:
+# http://khmer.readthedocs.org/en/v1.0/choosing-table-sizes.html
+diginorm_params:
+    ksize:         "32" # Remember to set MINLEN in trimmomatic_params at least this value!
     cutoff:        "20"
     n_tables:      "4"   # n_tables * max_tablesize must be < your RAM in bytes
-    max_tablesize: "1e6" # 4 tables * 1e9 (~1GB) ~ 4Gb
+    max_tablesize: "4e9" # 4 tables * 4e9 (~4GB) ~ 16Gb
 
 trinity_params:
     memory:     10G
