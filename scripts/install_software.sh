@@ -27,7 +27,6 @@ popd
 
 
 # Trimmomatic v0.33
-cd /root
 curl -O http://www.usadellab.org/cms/uploads/supplementary/Trimmomatic/Trimmomatic-0.33.zip
 unzip Trimmomatic-0.33.zip
 rm Trimmomatic-0.33.zip
