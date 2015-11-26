@@ -119,7 +119,26 @@ rule QC_interleave_pe:
 
 
 
+rule QC:
+    """
+    Rule to do all the Quality Control:
+        - QC_trimmomatic_pe
+        - QC_interleave_pe
+    """
+    input:
+        expand(
+            TRIM_DIR + "/{sample}.final.{pair}.fq.gz",
+            sample = SAMPLES_PE,
+            pair = PAIRS
+        )
+
+
+
+
 rule diginorm_load_into_counting:
+    """
+    Build the hash table data structure from all the trimmed reads.
+    """
     input:
         fastqs = expand(
             TRIM_DIR + "/{sample}.final.{pair}.fq.gz",
@@ -296,7 +315,37 @@ rule diginorm_merge_single_reads:
 
 
 
+rule diginorm:
+    """
+    Rule to do the Quality Control and the Digital Normalization:
+    QC:
+        - QC_trimmomatic_pe
+        - QC_interleave_pe
+    Diginorm:
+        - diginorm_load_into_counting
+        - diginorm_normalize_by_median_pe
+        - diginorm_normalize_by_median_se
+        - diginorm_filter_abund
+        - diginorm_extract_paired_reads
+        - diginorm_merge_single_reads
+    """
+    input:
+        pe = expand(
+            NORM_DIR + "/{sample}.final.pe.fq.gz",
+            sample = SAMPLES_PE
+        ),
+        se = expand(
+            NORM_DIR + "/{sample}.final.se.fq.gz",
+            sample = SAMPLES_PE
+        )
+
+
+
 rule assembly_prepare_reads:
+    """
+    Split PE reads into left and right.fq
+    Append SE reads to left.fq
+    """
     input:
         pe = expand(
             NORM_DIR + "/{sample}.final.pe.fq.gz",
@@ -335,6 +384,13 @@ rule assembly_prepare_reads:
 
 
 rule assembly_run_trinity:
+    """
+    Assembly reads with Trinity.
+    Notes on hardcoded settings:
+        - Runs on paired end mode
+        - Expect fastq files as inputs (left and right)
+        - Does the full cleanup so it only remains a fasta file.
+    """
     input:
         left  = ASSEMBLY_DIR + "/left.fq",
         right = ASSEMBLY_DIR + "/right.fq"
@@ -348,7 +404,7 @@ rule assembly_run_trinity:
     log:
         "logs/assembly/run_trinity.log"
     benchmark:
-        "benchmark/assembly/run_trinity.log"
+        "benchmarks/assembly/run_trinity.log"
     shell:
         """
         ./bin/Trinity \
@@ -363,3 +419,25 @@ rule assembly_run_trinity:
         
         mv {params.outdir}.Trinity.fasta {output.fasta}
         """
+
+
+
+rule assembly:
+    """
+    Runs from raw data to assembly:
+    QC:
+        - QC_trimmomatic_pe
+        - QC_interleave_pe
+    Diginorm:
+        - diginorm_load_into_counting
+        - diginorm_normalize_by_median_pe
+        - diginorm_normalize_by_median_se
+        - diginorm_filter_abund
+        - diginorm_extract_paired_reads
+        - diginorm_merge_single_reads
+    Assembly:
+        - assembly_prepare_reads
+        - assembly_run_trinity
+    """
+    input:
+        ASSEMBLY_DIR + "/Trinity.fasta"

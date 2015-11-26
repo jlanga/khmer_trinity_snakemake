@@ -26,10 +26,10 @@ trimmomatic_params:
     LEADING:20 TRAILING:20 AVGQUAL:30 MINLEN:27 TOPHRED33
 
 diginorm_params: 
-    ksize:         "20"
+    ksize:         "32"
     cutoff:        "20"
     n_tables:      "4"   # n_tables * max_tablesize must be < your RAM in bytes
-    max_tablesize: "3e9" # 4 tables * 3e9 (~3GB) ~ 12Gb
+    max_tablesize: "1e6" # 4 tables * 1e9 (~1GB) ~ 4Gb
 
 trinity_params:
     memory:     10G
