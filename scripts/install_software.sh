@@ -18,7 +18,7 @@ popd
 # Khmer
 echo "Installing the khmer protocol"
 git clone https://github.com/ged-lab/khmer.git
-cd khmer
+pushd khmer
 git checkout protocols-v0.8.3
 make
 make install
