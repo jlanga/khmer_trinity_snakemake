@@ -10,11 +10,13 @@ SAMPLES_SE  = config["samples_se"]
 
 
 # Folder variables
-RAW_DIR      = "data/fastq_raw"
-TRIM_DIR     = "data/fastq_trimmed"
-NORM_DIR     = "data/fastq_norm"
-ASSEMBLY_DIR = "data/assembly"
-
+RAW_DIR         = "data/fastq_raw"
+TRIM_DIR        = "data/fastq_trimmed"
+NORM_DIR        = "data/fastq_norm"
+ASSEMBLY_DIR    = "data/assembly"
+FASTQC_RAW_DIR  = "data/fastqc_raw"
+FASTQC_TRIM_DIR = "data/fastqc_trimmed"
+FASTQC_NORM_DIR = "data/fastqc_norm"
 
 # Path to programs (or element on path)
 
@@ -24,7 +26,31 @@ gzip        = config["software"]["gzip"]
 
 rule all:
     input:
-        fasta = ASSEMBLY_DIR + "/Trinity.fasta"
+        ASSEMBLY_DIR + "/Trinity.fasta",
+        expand( # fastqc zip and html files for PE data DIGINORM
+            FASTQC_NORM_DIR + "/{sample}.final.{pair}_fastqc.{extension}",
+            sample = SAMPLES_PE,
+            pair   = PAIRS,
+            extension = "zip html".split()
+        ),
+        expand( # fastqc zip and html files for SE data DIGINORM
+            FASTQC_NORM_DIR + "/{sample}.final.{pair}_fastqc.{extension}",
+            sample = SAMPLES_SE,
+            pair = ["se"],
+            extension = "zip html".split()
+        ),
+        expand( # fastqc zip and html files for PE data QC
+            FASTQC_TRIM_DIR + "/{sample}.final.{pair}_fastqc.{extension}",
+            sample = SAMPLES_PE,
+            pair   = PAIRS,
+            extension = "zip html".split()
+        ),
+        expand( # fastqc zip and html files for SE data QC
+            FASTQC_TRIM_DIR + "/{sample}.final.{pair}_fastqc.{extension}",
+            sample = SAMPLES_SE,
+            pair = ["se"],
+            extension = "zip html".split()
+        )
 
 
 
@@ -32,11 +58,15 @@ rule clean:
     shell:
         """
         rm -rf data/fastq_trimmed
+        rm -rf data/fastqc_trimmed
         rm -rf data/fastq_norm
+        rm -rf data/fastqc_norm
         rm -rf data/assembly
         rm -rf logs
         rm -rf benchmarks
         """
+
+
 
 ####
 # Quality control rules
@@ -157,6 +187,38 @@ rule qc_interleave_pe_pe:
 
 
 
+rule qc_fastqc:
+    """
+    Do FASTQC reports
+    Uses --nogroup!
+    One thread per fastq.gz file
+    """
+    input:
+        fastq = TRIM_DIR + "/{sample}.final.{pair}.fq.gz"
+    output:
+        zip   = FASTQC_TRIM_DIR + "/{sample}.final.{pair}_fastqc.zip",
+        html  = FASTQC_TRIM_DIR + "/{sample}.final.{pair}_fastqc.html" 
+    threads:
+        1
+    params:
+        zip   = TRIM_DIR + "/{sample}.final.{pair}_fastqc.zip",
+        html  = TRIM_DIR + "/{sample}.final.{pair}_fastqc.html"
+    log:
+        "logs/qc/fastqc_trimmed_{sample}_{pair}.log"
+    benchmark:
+        "benchmarks/qc/fastqc_trimmed_{sample}_{pair}.json"
+    shell:
+        """
+        fastqc \
+            --nogroup \
+            {input.fastq} \
+        > {log} 2>&1
+        
+        mv {params.zip} {output.zip}
+        mv {params.html} {output.html}
+        """
+
+
 rule qc:
     """
     Rule to do all the Quality Control:
@@ -165,14 +227,27 @@ rule qc:
         - qc_interleave_pe_pe
     """
     input:
-        expand(
+        expand( # fq.gz files for PE data
             TRIM_DIR + "/{sample}.final.{pair}.fq.gz",
             sample = SAMPLES_PE,
-            pair = PAIRS
+            pair   = PAIRS
         ),
-        expand(
-            TRIM_DIR + "/{sample}.final.se.fq.gz",
-            sample = SAMPLES_SE
+        expand( # fq.gz files for SE data
+            TRIM_DIR + "/{sample}.final.{pair}.fq.gz",
+            sample = SAMPLES_SE,
+            pair = ["se"]
+        ),
+        expand( # fastqc zip and html files for PE data
+            FASTQC_TRIM_DIR + "/{sample}.final.{pair}_fastqc.{extension}",
+            sample = SAMPLES_PE,
+            pair   = PAIRS,
+            extension = "zip html".split()
+        ),
+        expand( # fastqc zip and html files for SE data
+            FASTQC_TRIM_DIR + "/{sample}.final.{pair}_fastqc.{extension}",
+            sample = SAMPLES_SE,
+            pair = ["se"],
+            extension = "zip html".split()
         )
 
 
@@ -415,6 +490,38 @@ rule dignorm_get_former_se_reads:
 
 
 
+rule diginorm_fastqc:
+    """
+    Do FASTQC reports
+    Uses --nogroup!
+    One thread per fastq.gz file
+    """
+    input:
+        fastq = NORM_DIR + "/{sample}.final.{pair}.fq.gz"
+    output:
+        zip   = FASTQC_NORM_DIR + "/{sample}.final.{pair}_fastqc.zip",
+        html  = FASTQC_NORM_DIR + "/{sample}.final.{pair}_fastqc.html" 
+    threads:
+        1
+    params:
+        zip   = NORM_DIR + "/{sample}.final.{pair}_fastqc.zip",
+        html  = NORM_DIR + "/{sample}.final.{pair}_fastqc.html"
+    log:
+        "logs/diginorm/fastqc_trimmed_{sample}_{pair}.log"
+    benchmark:
+        "benchmarks/diginorm/fastqc_trimmed_{sample}_{pair}.json"
+    shell:
+        """
+        fastqc \
+            --nogroup \
+            {input.fastq} \
+        > {log} 2>&1
+        
+        mv {params.zip} {output.zip}
+        mv {params.html} {output.html}
+        """
+
+
 rule diginorm:
     """
     Rule to do the Quality Control and the Digital Normalization:
@@ -432,16 +539,40 @@ rule diginorm:
         - diginorm_get_former_se_reads
     """
     input:
-        pe = expand(
+        expand( # pe_pe
             NORM_DIR + "/{sample}.final.pe_pe.fq.gz",
             sample = SAMPLES_PE
         ),
-        se = expand(
+        expand( # pe_se
             NORM_DIR + "/{sample}.final.pe_se.fq.gz",
             sample = SAMPLES_PE
-        ) + expand(
+        ) + expand( # se
             NORM_DIR + "/{sample}.final.se.fq.gz",
             sample = SAMPLES_SE
+        ),
+        expand( # fastqc zip and html files for PE data DIGINORM
+            FASTQC_NORM_DIR + "/{sample}.final.{pair}_fastqc.{extension}",
+            sample = SAMPLES_PE,
+            pair   = PAIRS,
+            extension = "zip html".split()
+        ),
+        expand( # fastqc zip and html files for SE data DIGINORM
+            FASTQC_NORM_DIR + "/{sample}.final.{pair}_fastqc.{extension}",
+            sample = SAMPLES_SE,
+            pair = ["se"],
+            extension = "zip html".split()
+        ),
+        expand( # fastqc zip and html files for PE data QC
+            FASTQC_TRIM_DIR + "/{sample}.final.{pair}_fastqc.{extension}",
+            sample = SAMPLES_PE,
+            pair   = PAIRS,
+            extension = "zip html".split()
+        ),
+        expand( # fastqc zip and html files for SE data QC
+            FASTQC_TRIM_DIR + "/{sample}.final.{pair}_fastqc.{extension}",
+            sample = SAMPLES_SE,
+            pair = ["se"],
+            extension = "zip html".split()
         )
         
         
@@ -551,4 +682,29 @@ rule assembly:
         - assembly_run_trinity
     """
     input:
-        ASSEMBLY_DIR + "/Trinity.fasta"
+        ASSEMBLY_DIR + "/Trinity.fasta",
+        expand( # fastqc zip and html files for PE data DIGINORM
+            FASTQC_NORM_DIR + "/{sample}.final.{pair}_fastqc.{extension}",
+            sample = SAMPLES_PE,
+            pair   = PAIRS,
+            extension = "zip html".split()
+        ),
+        expand( # fastqc zip and html files for SE data DIGINORM
+            FASTQC_NORM_DIR + "/{sample}.final.{pair}_fastqc.{extension}",
+            sample = SAMPLES_SE,
+            pair = ["se"],
+            extension = "zip html".split()
+        ),
+        expand( # fastqc zip and html files for PE data QC
+            FASTQC_TRIM_DIR + "/{sample}.final.{pair}_fastqc.{extension}",
+            sample = SAMPLES_PE,
+            pair   = PAIRS,
+            extension = "zip html".split()
+        ),
+        expand( # fastqc zip and html files for SE data QC
+            FASTQC_TRIM_DIR + "/{sample}.final.{pair}_fastqc.{extension}",
+            sample = SAMPLES_SE,
+            pair = ["se"],
+            extension = "zip html".split()
+        )
+        
