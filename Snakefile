@@ -51,6 +51,7 @@ rule qc_trimmomatic_pe:
     Outputs _3 and _4 are compressed with the builtin compressor from 
         Trimmomatic. Further on they are catted and compressed with gzip/pigz 
         (level 9).
+    Note: The cut -f 1 -d " " is to remove additional fields in the FASTQ header. It is done posterior to the trimming since the output comes slower than the input is read.
     """
     input:
         forward = lambda wildcards: config["samples_pe"][wildcards.sample]["forward"],
@@ -78,15 +79,16 @@ rule qc_trimmomatic_pe:
             -{params.phred} \
             <({gzip} -dc {input.forward} ) \
             <({gzip} -dc {input.reverse} ) \
-            >({gzip} -9 > {output.forward} ) \
+            >(cut -f 1 -d " " | {gzip} -9 > {output.forward} ) \
             {params.unpaired_1} \
-            >({gzip} -9 > {output.reverse} ) \
+            >(cut -f 1 -d " " | {gzip} -9 > {output.reverse} ) \
             {params.unpaired_2} \
             ILLUMINACLIP:{params.adaptor}:2:30:10 \
             {params.trimmomatic_params} \
             2> {log}
             
-        zcat {params.unpaired_1} {params.unpaired_2}    |
+        zcat {params.unpaired_1} {params.unpaired_2} |
+        cut -f 1 -d " " |
         {gzip} -9 > {output.unpaired}
         
         rm {params.unpaired_1} {params.unpaired_2}
@@ -99,12 +101,12 @@ rule qc_trimmomatic_se:
     Run trimmomatic on single end mode to eliminate Illumina adaptors and 
         remove low quality regions and reads.
     Input is piped through gzip/pigz.
-    Output is compressed with Trimmomatic's compressor.
+    Output is piped to gzip.
     """
     input:
         single = lambda wildcards: config["samples_se"][wildcards.sample]["single"],
     output:
-        single     = temp(TRIM_DIR + "/{sample}.final.se.fq.gz")
+        single     = protected(TRIM_DIR + "/{sample}.final.se.fq.gz")
     params:
         adaptor     = lambda wildcards: config["samples_se"][wildcards.sample]["adaptor"],
         phred       = lambda wildcards: config["samples_se"][wildcards.sample]["phred"],
@@ -120,8 +122,8 @@ rule qc_trimmomatic_se:
         {trimmomatic} SE \
             -threads {threads} \
             -{params.phred} \
-            <({gzip} -dc {input.single} ) \
-            {output.single} \
+            <({gzip} -dc {input.single}) \
+            >(cut -f 1 -d " " | {gzip} -9 > {output.single}) \
             ILLUMINACLIP:{params.adaptor}:2:30:10 \
             {params.trimmomatic_params} \
             2> {log}
@@ -131,7 +133,7 @@ rule qc_trimmomatic_se:
 rule qc_interleave_pe_pe:
     """
     From the adaptor free _1 and _2 , interleave the reads.
-    Pipe the inputs, interleave, filter the stream and compress.
+    Read the inputs, interleave, filter the stream and compress.
     """
     input:
         forward= TRIM_DIR + "/{sample}_1.fq.gz",
@@ -147,8 +149,8 @@ rule qc_interleave_pe_pe:
     shell:
         """
         ( python bin/interleave-reads.py \
-            <({gzip} -dc {input.forward} | cut -f 1 -d " ") \
-            <({gzip} -dc {input.reverse} | cut -f 1 -d " ") |
+            {input.forward} \
+            {input.reverse} |
         {gzip} -9 > {output.interleaved} ) \
         2> {log}
         """
