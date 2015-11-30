@@ -11,12 +11,14 @@ SAMPLES_SE  = config["samples_se"]
 
 # Folder variables
 RAW_DIR         = "data/fastq_raw"
-TRIM_DIR        = "data/fastq_trimmed"
-NORM_DIR        = "data/fastq_norm"
-ASSEMBLY_DIR    = "data/assembly"
 FASTQC_RAW_DIR  = "data/fastqc_raw"
+TRIM_DIR        = "data/fastq_trimmed"
 FASTQC_TRIM_DIR = "data/fastqc_trimmed"
+NORM_DIR        = "data/fastq_norm"
 FASTQC_NORM_DIR = "data/fastqc_norm"
+ASSEMBLY_DIR    = "data/assembly"
+PART_DIR        = "data/partitions"
+
 
 # Path to programs (or element on path)
 
@@ -26,7 +28,7 @@ gzip        = config["software"]["gzip"]
 
 rule all:
     input:
-        ASSEMBLY_DIR + "/Trinity.fasta",
+        PART_DIR + "/Trinity.fasta",
         expand( # fastqc zip and html files for PE data DIGINORM
             FASTQC_NORM_DIR + "/{sample}.final.{pair}_fastqc.{extension}",
             sample = SAMPLES_PE,
@@ -62,6 +64,7 @@ rule clean:
         rm -rf data/fastq_norm
         rm -rf data/fastqc_norm
         rm -rf data/assembly
+        rm -rf data/partitions
         rm -rf logs
         rm -rf benchmarks
         """
@@ -707,4 +710,65 @@ rule assembly:
             pair = ["se"],
             extension = "zip html".split()
         )
+
+
+
+rule part_do_partition:
+    input:
+        assembly = ASSEMBLY_DIR + "/Trinity.fasta"
+    output:
+        assembly = temp(PART_DIR + "/Trinity.fasta.part")
+    params:
+        assembly_tmp=  "Trinity.fasta.part",
+        prefix=        config["prefix"],
+        ksize=         config["diginorm_params"]["ksize"],
+        max_tablesize= config["diginorm_params"]["max_tablesize"],
+        n_tables=      config["diginorm_params"]["n_tables"]
+    threads:
+        24
+    log:
+        "logs/part/do_partition.log"
+    benchmark:
+        "benchmarks/part/do_partition.json"
+    shell:
+        """
+        ./bin/do-partition.py \
+            --ksize {params.ksize} \
+            --n_tables {params.n_tables} \
+            --max-tablesize {params.max_tablesize} \
+            --threads {threads} \
+            {params.prefix} \
+            {input.assembly} \
+        2> {log}
         
+        mv {params.assembly_tmp} {output.assembly}
+        """
+
+
+
+rule part_rename_with_partitions:
+    input:
+        assembly = PART_DIR + "/Trinity.fasta.part"
+    output:
+        assembly = protected(PART_DIR + "/Trinity.fasta")
+    params:
+        prefix       = config["prefix"],
+        assembly_tmp = "Trinity.fasta.part.renamed.fasta.gz"
+    threads:
+        1
+    log:
+        "logs/part/rename_with_partitions.log"
+    benchmark:
+        "benchmarks/part/rename_with_partitions.json"
+    shell:
+        """
+        python src/eel-pond/rename-with-partitions.py \
+            {params.prefix} \
+            {input.assembly} \
+        > {log}
+        
+        {gzip} -dc \
+            {params.assembly_tmp} \
+        >  {output.assembly} \
+        2>> {log}
+        """

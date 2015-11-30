@@ -1,3 +1,6 @@
+prefix:
+    test # This should be your research study animal, plant, cell line, ...
+
 samples_pe:
     test1:
         forward: data/fastq_raw/test1_1.fastq.gz
