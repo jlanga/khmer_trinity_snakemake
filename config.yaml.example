@@ -34,8 +34,8 @@ trimmomatic_params:
 diginorm_params:
     ksize:         "32" # Remember to set MINLEN in trimmomatic_params at least this value!
     cutoff:        "20"
-    n_tables:      "4"   # n_tables * max_tablesize must be < your RAM in bytes
-    max_tablesize: "4e9" # 4 tables * 4e9 (~4GB) ~ 16Gb
+    n_hashes:      "4"   # n_tables * hashsize must be < your RAM in bytes
+    hashsize:      "4e9" # 4 tables * 4e9 (~4GB) ~ 16Gb
 
 trinity_params:
     memory:     10G

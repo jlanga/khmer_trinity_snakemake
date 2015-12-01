@@ -67,3 +67,11 @@ pushd samtools-latest/
 make -j 24
 cp samtools ../../bin
 popd
+
+
+
+# eel-pond scripts
+git clone https://github.com/ctb/eel-pond.git
+pushd eel-pond
+git checkout protocols-v0.8.3
+popd

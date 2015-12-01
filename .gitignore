@@ -5,3 +5,12 @@ data/fastq_norm/
 data/fastq_trimmed/
 logs/
 src/
+bin/
+data/adapters
+data/assembly/
+data/fastqc_norm/
+data/fastqc_trimmed/
+include/
+lib/
+local/
+

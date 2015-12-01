@@ -1,12 +1,14 @@
 shell.prefix("set -euo pipefail;")
+configfile: "config.yaml"
 
-configfile: "config.yaml.example"
+
 
 # List variables
 ENDS = "1 2 u".split()
 PAIRS = "pe_pe pe_se".split()
 SAMPLES_PE  = config["samples_pe"]
 SAMPLES_SE  = config["samples_se"]
+
 
 
 # Folder variables
@@ -20,11 +22,19 @@ ASSEMBLY_DIR    = "data/assembly"
 PART_DIR        = "data/partitions"
 
 
-# Path to programs (or element on path)
 
+# Path to programs (or element on path)
 trinity     = config["software"]["trinity"]
 trimmomatic = config["software"]["trimmomatic"]
 gzip        = config["software"]["gzip"]
+
+
+
+# Special variables - To make sense on why use all
+ALL_TRHEADS   = 999999 # In case you want to use all threads
+BLOCK_THREADS = 999999 # In case you only want to block excessive RAM usage
+
+
 
 rule all:
     input:
@@ -77,14 +87,16 @@ rule clean:
 
 rule qc_trimmomatic_pe:
     """
-    Run trimmomatic on paired end mode to eliminate Illumina adaptors and remove
-        low quality regions and reads.
+    Run trimmomatic on paired end mode to eliminate Illumina adaptors and 
+    remove low quality regions and reads.
     Inputs _1 and _2 are piped through gzip/pigz.
     Outputs _1 and _2 are piped to gzip/pigz (level 9).
     Outputs _3 and _4 are compressed with the builtin compressor from 
-        Trimmomatic. Further on they are catted and compressed with gzip/pigz 
-        (level 9).
-    Note: The cut -f 1 -d " " is to remove additional fields in the FASTQ header. It is done posterior to the trimming since the output comes slower than the input is read.
+    Trimmomatic. Further on they are catted and compressed with gzip/pigz 
+    (level 9).
+    Note: The cut -f 1 -d " " is to remove additional fields in the FASTQ
+    header. It is done posterior to the trimming since the output comes 
+    slower than the input is read.
     """
     input:
         forward = lambda wildcards: config["samples_pe"][wildcards.sample]["forward"],
@@ -163,6 +175,7 @@ rule qc_trimmomatic_se:
         """
     
 
+
 rule qc_interleave_pe_pe:
     """
     From the adaptor free _1 and _2 , interleave the reads.
@@ -174,7 +187,7 @@ rule qc_interleave_pe_pe:
     output:
         interleaved= protected(TRIM_DIR + "/{sample}.final.pe_pe.fq.gz")
     threads:
-        2
+        2 # One for the pairer and other for gzip
     log:
         "logs/qc/interleave_pe_{sample}.log"
     benchmark:
@@ -222,12 +235,14 @@ rule qc_fastqc:
         """
 
 
+
 rule qc:
     """
     Rule to do all the Quality Control:
         - qc_trimmomatic_pe
         - qc_trimmomatic_se
         - qc_interleave_pe_pe
+        - qc_fastqc
     """
     input:
         expand( # fq.gz files for PE data
@@ -255,10 +270,15 @@ rule qc:
 
 
 
+###
+# Diginorm rules
+###
 
 rule diginorm_load_into_counting:
     """
     Build the hash table data structure from all the trimmed reads.
+    Caution!: The --help says that it can be multithreaded but it raises
+    errors!
     """
     input:
         fastqs = expand(
@@ -273,26 +293,25 @@ rule diginorm_load_into_counting:
         table = temp(NORM_DIR + "/diginorm_table.kh"),
         info  = temp(NORM_DIR + "/diginorm_table.kh.info")
     threads:
-        24
+        1
     log:
         "logs/diginorm/load_into_counting.log"
     benchmark:
         "benchmarks/diginorm/load_into_counting.json"
     params:
-        ksize=         config["diginorm_params"]["ksize"],
-        max_tablesize= config["diginorm_params"]["max_tablesize"],
-        n_tables=      config["diginorm_params"]["n_tables"]
+        ksize=    config["diginorm_params"]["ksize"],
+        hashsize= config["diginorm_params"]["hashsize"],
+        n_hashes= config["diginorm_params"]["n_hashes"]
     shell:
         """
         ./bin/load-into-counting.py \
             --ksize {params.ksize} \
-            --n_tables {params.n_tables} \
-            --max-tablesize {params.max_tablesize} \
-            --threads {threads} \
+            --n_hashes {params.n_hashes} \
+            --hashsize {params.hashsize} \
             --no-bigcount \
             {output.table} \
             {input.fastqs} \
-        2>  {log}
+        >  {log} 2>&1
         """
 
 
@@ -308,24 +327,35 @@ rule diginorm_normalize_by_median_pe_pe:
     output:
         fastq = temp(NORM_DIR + "/{sample}.keep.pe_pe.fq.gz")
     threads:
-        24 # Block RAM
+        BLOCK_THREADS # Block
     params:
-        cutoff = config["diginorm_params"]["cutoff"]
+        cutoff   = config["diginorm_params"]["cutoff"],
+        ksize    = config["diginorm_params"]["ksize"],
+        n_hashes = config["diginorm_params"]["n_hashes"],
+        hashsize = config["diginorm_params"]["hashsize"],
+        keep_fq  = "{sample}.final.pe_pe.fq.gz.keep"
     log:
         "logs/diginorm/normalize_by_median_pe_pe_{sample}.log"
     benchmark:
         "benchmarks/diginorm/normalize_by_median_pe_pe_{sample}.json"
     shell:
         """
-        ( ./bin/normalize-by-median.py \
-            --paired \
-            --loadgraph {input.table} \
+        ./bin/normalize-by-median.py \
+            --ksize {params.ksize} \
+            --n_hashes {params.n_hashes} \
+            --hashsize {params.hashsize} \
             --cutoff {params.cutoff} \
-            --output - \
-            {input.fastq} |
-        pigz -9 \
-        > {output.fastq} ) \
+            --paired \
+            --loadhash {input.table} \
+            {input.fastq} \
+        > {log} 2>&1
+         
+        pigz -9c \
+            {params.keep_fq} \
+        > {output.fastq} \
         2> {log}
+        
+        rm {params.keep_fq}
         """
 
 
@@ -341,23 +371,34 @@ rule diginorm_normalize_by_median_pe_se:
     output:
         fastq = temp(NORM_DIR + "/{sample}.keep.pe_se.fq.gz")
     threads:
-        24 # Block excessive RAM usage
+        BLOCK_THREADS # Block excessive RAM usage
     params:
-        cutoff = config["diginorm_params"]["cutoff"]
+        cutoff   = config["diginorm_params"]["cutoff"],
+        ksize    = config["diginorm_params"]["ksize"],
+        n_hashes = config["diginorm_params"]["n_hashes"],
+        hashsize = config["diginorm_params"]["hashsize"],
+        keep_fq  = "{sample}.final.pe_se.fq.gz.keep"
     log:
         "logs/diginorm/normalize_by_median_pe_se_{sample}.log"
     benchmark:
         "benchmarks/diginorm/normalize_by_median_pe_se_{sample}.json"
     shell:
         """
-        ( ./bin/normalize-by-median.py \
-            --loadgraph {input.table} \
+        ./bin/normalize-by-median.py \
+            --ksize {params.ksize} \
+            --n_hashes {params.n_hashes} \
+            --hashsize {params.hashsize} \
             --cutoff {params.cutoff} \
-            --output - \
-            {input.fastq} |
-        {gzip} -9 \
-        > {output.fastq} ) \
+            --loadhash {input.table} \
+            {input.fastq} \
+        > {log} 2>&1
+         
+        pigz -9c \
+            {params.keep_fq} \
+        > {output.fastq} \
         2> {log}
+        
+        rm {params.keep_fq}
         """
 
 
@@ -373,23 +414,34 @@ rule diginorm_normalize_by_median_se:
     output:
         fastq = temp(NORM_DIR + "/{sample}.keep.se.fq.gz")
     threads:
-        24 # Block excessive RAM usage
+        BLOCK_THREADS # Block excessive RAM usage
     params:
-        cutoff = config["diginorm_params"]["cutoff"]
+        cutoff   = config["diginorm_params"]["cutoff"],
+        ksize    = config["diginorm_params"]["ksize"],
+        n_hashes = config["diginorm_params"]["n_hashes"],
+        hashsize = config["diginorm_params"]["hashsize"],
+        keep_fq  = "{sample}.final.se.fq.gz.keep"
     log:
         "logs/diginorm/normalize_by_median_se_{sample}.log"
     benchmark:
         "benchmarks/diginorm/normalize_by_median_se_{sample}.json"
     shell:
         """
-        ( ./bin/normalize-by-median.py \
-            --loadgraph {input.table} \
+        ./bin/normalize-by-median.py \
+            --ksize {params.ksize} \
+            --n_hashes {params.n_hashes} \
+            --hashsize {params.hashsize} \
             --cutoff {params.cutoff} \
-            --output - \
-            {input.fastq} |
-        {gzip} -9 \
-        > {output.fastq} ) \
+            --loadhash {input.table} \
+            {input.fastq} \
+        > {log} 2>&1
+         
+        pigz -9c \
+            {params.keep_fq} \
+        > {output.fastq} \
         2> {log}
+        
+        rm {params.keep_fq}
         """
 
 
@@ -404,29 +456,35 @@ rule diginorm_filter_abund:
     output:
         fastq = temp(NORM_DIR + "/{sample}.abundfilt.{pair}.fq.gz")
     threads:
-        24
+        BLOCK_THREADS # BLOCK
     params:
-        ""
+        abundfilt_fq = "{sample}.keep.{pair}.fq.gz.abundfilt"
     log:
         "logs/diginorm/filter_abund_{sample}_{pair}.log"
     benchmark:
         "benchmarks/diginorm_filter_abunt_{sample}_{pair}.json"
     shell:
         """
-        ( ./bin/filter-abund.py \
+        ./bin/filter-abund.py \
             --variable-coverage \
-            --threads {threads} \
-            --output - \
             {input.table} \
-            {input.fastq} |
-        {gzip} -9 \
-        > {output.fastq} ) \
-        2> {log}
+            {input.fastq} \
+        > {log} 2>&1
+            
+        {gzip} -9c \
+            {params.abundfilt_fq} \
+        > {output.fastq}  \
+        2>> {log}
+        
+        rm {params.abundfilt_fq}
         """
 
 
 
 rule diginorm_extract_paired_reads:
+    """
+    Split the filtered reads into PE and SE.
+    """
     input:
         fastq = NORM_DIR + "/{sample}.abundfilt.pe_pe.fq.gz"
     output:
@@ -434,6 +492,9 @@ rule diginorm_extract_paired_reads:
         fastq_se = temp(NORM_DIR + "/{sample}.temp.pe_se.fq.gz")
     threads:
         1
+    params:
+        fastq_pe = "{sample}.abundfilt.pe_pe.fq.gz.pe",
+        fastq_se = "{sample}.abundfilt.pe_pe.fq.gz.se"
     log:
         "logs/diginorm/extract_paired_reads_{sample}.log"
     benchmark:
@@ -441,16 +502,21 @@ rule diginorm_extract_paired_reads:
     shell:
         """
         ./bin/extract-paired-reads.py \
-            --output-paired {output.fastq_pe} \
-            --output-single {output.fastq_se} \
-            --gzip \
             {input.fastq} \
-        2> {log}
+        > {log} 2>&1
+        
+        {gzip} -9c {params.fastq_pe} > {output.fastq_pe}
+        {gzip} -9c {params.fastq_se} > {output.fastq_se}
+        
+        rm {params.fastq_pe} {params.fastq_se}
         """
 
 
 
 rule diginorm_merge_pe_single_reads:
+    """
+    Put together the SE reads from the same sample
+    """
     input:
         from_norm=   NORM_DIR + "/{sample}.abundfilt.pe_se.fq.gz",
         from_paired= NORM_DIR + "/{sample}.temp.pe_se.fq.gz"
@@ -473,8 +539,8 @@ rule diginorm_merge_pe_single_reads:
 
 rule dignorm_get_former_se_reads:
     """
-    Move the result of diginorm_extract_paired_reads for true SE reads to their
-    final position.
+    Move the result of diginorm_extract_paired_reads for true SE reads 
+    to their final position.
     """
     input:
         single= NORM_DIR + "/{sample}.abundfilt.se.fq.gz"
@@ -525,6 +591,7 @@ rule diginorm_fastqc:
         """
 
 
+
 rule diginorm:
     """
     Rule to do the Quality Control and the Digital Normalization:
@@ -532,6 +599,7 @@ rule diginorm:
         - qc_trimmomatic_pe
         - qc_trimmomatic_se
         - qc_interleave_pe_pe
+        - qc_fastqc
     Diginorm:
         - diginorm_load_into_counting
         - diginorm_normalize_by_median_pe_pe
@@ -540,6 +608,7 @@ rule diginorm:
         - diginorm_extract_paired_reads
         - diginorm_merge_pe_single_reads
         - diginorm_get_former_se_reads
+        - diginorm_fastqc
     """
     input:
         expand( # pe_pe
@@ -580,49 +649,73 @@ rule diginorm:
         
         
 
+###
+# Assembly rules
+###
 
-
-rule assembly_prepare_reads:
+rule assembly_split_pe_files:
     """
-    Split PE reads into left and right.fq
-    Append SE reads to left.fq
+    Split pe_pe files into _1 and _2.
     """
     input:
-        pe = expand(
-            NORM_DIR + "/{sample}.final.pe_pe.fq.gz",
-            sample = SAMPLES_PE
-        ),
-        se = expand(
+        fastq_pe = NORM_DIR + "/{sample}.final.pe_pe.fq.gz"
+    output:
+        left  = temp(ASSEMBLY_DIR + "/{sample}_1.fq.gz"),
+        right = temp(ASSEMBLY_DIR + "/{sample}_2.fq.gz")
+    threads:
+        1
+    params:
+        left  = "{sample}.final.pe_pe.fq.gz.1",
+        right = "{sample}.final.pe_pe.fq.gz.2"
+    log:
+        "logs/assembly/split_pe_files_{sample}.log"
+    benchmark:
+        "benchmarks/assembly/split_pe_files_{sample}.json"
+    shell:
+        """
+        ./bin/split-paired-reads.py \
+            {input.fastq_pe} \
+        > {log} 2>&1
+        
+        {gzip} -9c {params.left}  > {output.left}
+        {gzip} -9c {params.right} > {output.right}
+        
+        rm {params.left} {params.right}
+        """
+
+
+
+rule assembly_merge_right_and_left:
+    """
+    Generate the left.fq and right.fq
+    left.fq = /1 reads from PE + all SE reads
+    right.fq = /2 reads form PE
+    """
+    input:
+        forward=  expand(ASSEMBLY_DIR + "/{sample}_1.fq.gz",
+            sample = SAMPLES_PE),
+        reverse=  expand(ASSEMBLY_DIR + "/{sample}_2.fq.gz",
+            sample = SAMPLES_PE),
+        unpaired= expand( # pe_se
             NORM_DIR + "/{sample}.final.pe_se.fq.gz",
             sample = SAMPLES_PE
-        ) + expand(
+        ) + expand( # se
             NORM_DIR + "/{sample}.final.se.fq.gz",
             sample = SAMPLES_SE
         )
     output:
-        left  = temp(ASSEMBLY_DIR + "/left.fq"),
-        right = temp(ASSEMBLY_DIR + "/right.fq")
+        left=  temp(ASSEMBLY_DIR + "/left.fq"),
+        right= temp(ASSEMBLY_DIR + "/right.fq")
     threads:
         1
-    params:
-        orphans = ASSEMBLY_DIR + "/orphans.fq"
     log:
-        "logs/assembly/prepare_reads.log"
+        "logs/assembly/merge_right_and_left.log"
     benchmark:
-        "benchmarks/assembly/prepare_reads.json"
+        "benchmarks/assembly/merge_right_and_left.json"
     shell:
         """
-        ./bin/split-paired-reads.py \
-            --output-orphaned {params.orphans} \
-            --output-first {output.left} \
-            --output-second {output.right} \
-            <({gzip} -dc {input.pe}) \
-        > {log} 2>&1
-        
-        {gzip} -dc {input.se} >> {output.left}
-        
-        cat {params.orphans} >> {output.left}
-        rm {params.orphans}
+        {gzip} -dc {input.forward} {input.unpaired} > {output.left} 2> {log}
+        {gzip} -dc {input.reverse} > {output.right} 2>> {log}
         """
 
 
@@ -641,7 +734,7 @@ rule assembly_run_trinity:
     output:
         fasta = protected(ASSEMBLY_DIR + "/Trinity.fasta")
     threads:
-        24
+        BLOCK_THREADS
     params:
         memory= config["trinity_params"]["memory"],
         outdir= ASSEMBLY_DIR + "/trinity_out_dir"
@@ -662,6 +755,8 @@ rule assembly_run_trinity:
         > {log}
         
         mv {params.outdir}.Trinity.fasta {output.fasta}
+        
+        rm {input.left}.readcount {input.right}.readcount
         """
 
 
@@ -714,6 +809,10 @@ rule assembly:
 
 
 rule part_do_partition:
+    """
+    Construct a DBG from the reads and mark in the header of the fasta the
+    component.
+    """
     input:
         assembly = ASSEMBLY_DIR + "/Trinity.fasta"
     output:
@@ -722,10 +821,10 @@ rule part_do_partition:
         assembly_tmp=  "Trinity.fasta.part",
         prefix=        config["prefix"],
         ksize=         config["diginorm_params"]["ksize"],
-        max_tablesize= config["diginorm_params"]["max_tablesize"],
-        n_tables=      config["diginorm_params"]["n_tables"]
+        hashsize=      config["diginorm_params"]["hashsize"],
+        n_hashes=      config["diginorm_params"]["n_hashes"]
     threads:
-        24
+        BLOCK_THREADS
     log:
         "logs/part/do_partition.log"
     benchmark:
@@ -734,19 +833,23 @@ rule part_do_partition:
         """
         ./bin/do-partition.py \
             --ksize {params.ksize} \
-            --n_tables {params.n_tables} \
-            --max-tablesize {params.max_tablesize} \
+            --n_hashes {params.n_hashes} \
+            --hashsize {params.hashsize} \
             --threads {threads} \
             {params.prefix} \
             {input.assembly} \
-        2> {log}
+        > {log} 2>&1
         
         mv {params.assembly_tmp} {output.assembly}
+        mv {params.prefix}.info {PART_DIR}
         """
 
 
 
 rule part_rename_with_partitions:
+    """
+    Rename de fasta assemblty according to the parition name and component.
+    """
     input:
         assembly = PART_DIR + "/Trinity.fasta.part"
     output:
@@ -771,4 +874,6 @@ rule part_rename_with_partitions:
             {params.assembly_tmp} \
         >  {output.assembly} \
         2>> {log}
+        
+        rm {params.assembly_tmp}
         """
