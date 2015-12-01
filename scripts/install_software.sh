@@ -30,7 +30,7 @@ popd
 curl -O http://www.usadellab.org/cms/uploads/supplementary/Trimmomatic/Trimmomatic-0.33.zip
 unzip Trimmomatic-0.33.zip
 rm Trimmomatic-0.33.zip
-cp Trimmomatic-0.33/trimmomatic-0.33.jar
+cp Trimmomatic-0.33/trimmomatic-0.33.jar ../bin/
 cp Trimmomatic-0.33/adapters/*.fa ../data/adapters/
 
 
