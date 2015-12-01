@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+set -euo pipefail
+
 
 mkdir -p src
 mkdir -p data/adapters
