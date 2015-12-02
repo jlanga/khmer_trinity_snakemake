@@ -10,6 +10,7 @@ data/adapters
 data/assembly/
 data/fastqc_norm/
 data/fastqc_trimmed/
+data/partitions
 include/
 lib/
 local/

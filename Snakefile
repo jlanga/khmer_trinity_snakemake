@@ -171,7 +171,7 @@ rule qc_trimmomatic_se:
             >(cut -f 1 -d " " | {gzip} -9 > {output.single}) \
             ILLUMINACLIP:{params.adaptor}:2:30:10 \
             {params.trimmomatic_params} \
-            2> {log}
+        2> {log}
         """
     
 
@@ -212,8 +212,8 @@ rule qc_fastqc:
     input:
         fastq = TRIM_DIR + "/{sample}.final.{pair}.fq.gz"
     output:
-        zip   = FASTQC_TRIM_DIR + "/{sample}.final.{pair}_fastqc.zip",
-        html  = FASTQC_TRIM_DIR + "/{sample}.final.{pair}_fastqc.html" 
+        zip   = protected(FASTQC_TRIM_DIR + "/{sample}.final.{pair}_fastqc.zip"),
+        html  = protected(FASTQC_TRIM_DIR + "/{sample}.final.{pair}_fastqc.html")
     threads:
         1
     params:
@@ -353,7 +353,7 @@ rule diginorm_normalize_by_median_pe_pe:
         pigz -9c \
             {params.keep_fq} \
         > {output.fastq} \
-        2> {log}
+        2>> {log}
         
         rm {params.keep_fq}
         """
@@ -396,7 +396,7 @@ rule diginorm_normalize_by_median_pe_se:
         pigz -9c \
             {params.keep_fq} \
         > {output.fastq} \
-        2> {log}
+        2>> {log}
         
         rm {params.keep_fq}
         """
@@ -439,7 +439,7 @@ rule diginorm_normalize_by_median_se:
         pigz -9c \
             {params.keep_fq} \
         > {output.fastq} \
-        2> {log}
+        2>> {log}
         
         rm {params.keep_fq}
         """
@@ -568,8 +568,8 @@ rule diginorm_fastqc:
     input:
         fastq = NORM_DIR + "/{sample}.final.{pair}.fq.gz"
     output:
-        zip   = FASTQC_NORM_DIR + "/{sample}.final.{pair}_fastqc.zip",
-        html  = FASTQC_NORM_DIR + "/{sample}.final.{pair}_fastqc.html" 
+        zip   = protected(FASTQC_NORM_DIR + "/{sample}.final.{pair}_fastqc.zip"),
+        html  = protected(FASTQC_NORM_DIR + "/{sample}.final.{pair}_fastqc.html") 
     threads:
         1
     params:
