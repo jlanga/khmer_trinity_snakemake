@@ -39,6 +39,16 @@ BLOCK_THREADS = 999999 # In case you only want to block excessive RAM usage
 rule all:
     input:
         PART_DIR + "/Trinity.fasta",
+        expand( # fastqc zip and html for raw PE data
+            FASTQC_RAW_DIR + "/{sample}_{end}.fastqc.{extension}",
+            sample = SAMPLES_PE,
+            end = "1 2".split(),
+            extension = "zip html".split()
+        ) + expand( # fastqc zip and html for raw SE data
+            FASTQC_RAW_DIR + "/{sample}.fastqc.{extension}",
+            sample = SAMPLES_SE,
+            extension = "zip html".split()
+        ),
         expand( # fastqc zip and html files for PE data DIGINORM
             FASTQC_NORM_DIR + "/{sample}.final.{pair}_fastqc.{extension}",
             sample = SAMPLES_PE,
@@ -69,6 +79,7 @@ rule all:
 rule clean:
     shell:
         """
+        rm -rf data/fastqc_raw
         rm -rf data/fastq_trimmed
         rm -rf data/fastqc_trimmed
         rm -rf data/fastq_norm
@@ -80,6 +91,86 @@ rule clean:
         """
 
 
+
+rule raw_make_links_pe:
+    input:
+        forward= lambda wildcards: config["samples_pe"][wildcards.sample]["forward"],
+        reverse= lambda wildcards: config["samples_pe"][wildcards.sample]["reverse"]
+    output:
+        forward= RAW_DIR + "/{sample}_1.fq.gz",
+        reverse= RAW_DIR + "/{sample}_2.fq.gz"
+    threads:
+        1
+    log:
+        "logs/raw/make_links_pe_{sample}.log"
+    benchmark:
+        "benchmarks/raw/make_links_pe_{sample}.json"
+    shell:
+        """
+        ln -rs {input.forward} {output.forward} 2> {log}
+        ln -rs {input.reverse} {output.reverse} 2>> {log}
+        """ 
+
+
+
+rule raw_make_links_se:
+    input:
+        single= lambda wildcards: config["samples_se"][wildcards.sample]["single"],
+    output:
+        single= RAW_DIR + "/{sample}.fq.gz"
+    threads:
+        1
+    log:
+        "logs/raw/make_links_se_{sample}.log"
+    benchmark:
+        "benchmarks/raw/make_links_se_{sample}.json"
+    shell:
+        """
+        ln -rs {input.single} {output.single} 2>  {log}
+        """ 
+
+
+
+rule raw_fastqc_sample:
+    input:
+        fastq = RAW_DIR + "/{sample}.fq.gz"
+    output:
+        html= FASTQC_RAW_DIR + "/{sample}.fastqc.html",
+        zip=  FASTQC_RAW_DIR + "/{sample}.fastqc.zip"
+    threads:
+        1
+    params:
+        html= RAW_DIR + "/{sample}_fastqc.html",
+        zip=  RAW_DIR + "/{sample}_fastqc.zip"
+    log:
+        "logs/raw/fastqc_{sample}.log"
+    benchmark:
+        "benchmarks/raw/fastqc_{sample}.json"
+    shell:
+        """
+        fastqc \
+            --nogroup \
+            {input.fastq} \
+        2> {log} 1>&2
+        
+        mv {params.html} {output.html}
+        mv {params.zip}  {output.zip}
+        """
+
+
+
+rule raw_fastqc:
+    input:
+        expand(
+            FASTQC_RAW_DIR + "/{sample}_{end}.fastqc.{extension}",
+            sample = SAMPLES_PE,
+            end = "1 2".split(),
+            extension = "zip html".split()
+        ) + expand(
+            FASTQC_RAW_DIR + "/{sample}.fastqc.{extension}",
+            sample = SAMPLES_SE,
+            extension = "zip html".split()
+        )
 
 ####
 # Quality control rules
@@ -99,8 +190,8 @@ rule qc_trimmomatic_pe:
     slower than the input is read.
     """
     input:
-        forward = lambda wildcards: config["samples_pe"][wildcards.sample]["forward"],
-        reverse = lambda wildcards: config["samples_pe"][wildcards.sample]["reverse"]
+        forward = RAW_DIR + "/{sample}_1.fq.gz",
+        reverse = RAW_DIR + "/{sample}_2.fq.gz"
     output:
         forward     = temp(TRIM_DIR + "/{sample}_1.fq.gz"),
         reverse     = temp(TRIM_DIR + "/{sample}_2.fq.gz"),
@@ -130,7 +221,7 @@ rule qc_trimmomatic_pe:
             {params.unpaired_2} \
             ILLUMINACLIP:{params.adaptor}:2:30:10 \
             {params.trimmomatic_params} \
-            2> {log}
+        2> {log}
             
         zcat {params.unpaired_1} {params.unpaired_2} |
         cut -f 1 -d " " |
@@ -149,7 +240,7 @@ rule qc_trimmomatic_se:
     Output is piped to gzip.
     """
     input:
-        single = lambda wildcards: config["samples_se"][wildcards.sample]["single"],
+        single = RAW_DIR + "/{sample}.fq.gz",
     output:
         single     = protected(TRIM_DIR + "/{sample}.final.se.fq.gz")
     params:
@@ -239,12 +330,23 @@ rule qc_fastqc:
 rule qc:
     """
     Rule to do all the Quality Control:
+        - raw_fastqc
         - qc_trimmomatic_pe
         - qc_trimmomatic_se
         - qc_interleave_pe_pe
         - qc_fastqc
     """
     input:
+        expand( # fastqc zip and html for raw PE data
+            FASTQC_RAW_DIR + "/{sample}_{end}.fastqc.{extension}",
+            sample = SAMPLES_PE,
+            end = "1 2".split(),
+            extension = "zip html".split()
+        ) + expand( # fastqc zip and html for raw SE data
+            FASTQC_RAW_DIR + "/{sample}.fastqc.{extension}",
+            sample = SAMPLES_SE,
+            extension = "zip html".split()
+        ),
         expand( # fq.gz files for PE data
             TRIM_DIR + "/{sample}.final.{pair}.fq.gz",
             sample = SAMPLES_PE,
@@ -595,6 +697,8 @@ rule diginorm_fastqc:
 rule diginorm:
     """
     Rule to do the Quality Control and the Digital Normalization:
+    raw:
+        - raw_fastqc
     qc:
         - qc_trimmomatic_pe
         - qc_trimmomatic_se
@@ -611,6 +715,16 @@ rule diginorm:
         - diginorm_fastqc
     """
     input:
+        expand( # fastqc zip and html for raw PE data
+            FASTQC_RAW_DIR + "/{sample}_{end}.fastqc.{extension}",
+            sample = SAMPLES_PE,
+            end = "1 2".split(),
+            extension = "zip html".split()
+        ) + expand( # fastqc zip and html for raw SE data
+            FASTQC_RAW_DIR + "/{sample}.fastqc.{extension}",
+            sample = SAMPLES_SE,
+            extension = "zip html".split()
+        ),
         expand( # pe_pe
             NORM_DIR + "/{sample}.final.pe_pe.fq.gz",
             sample = SAMPLES_PE
@@ -781,6 +895,16 @@ rule assembly:
     """
     input:
         ASSEMBLY_DIR + "/Trinity.fasta",
+        expand( # fastqc zip and html for raw PE data
+            FASTQC_RAW_DIR + "/{sample}_{end}.fastqc.{extension}",
+            sample = SAMPLES_PE,
+            end = "1 2".split(),
+            extension = "zip html".split()
+        ) + expand( # fastqc zip and html for raw SE data
+            FASTQC_RAW_DIR + "/{sample}.fastqc.{extension}",
+            sample = SAMPLES_SE,
+            extension = "zip html".split()
+        ),
         expand( # fastqc zip and html files for PE data DIGINORM
             FASTQC_NORM_DIR + "/{sample}.final.{pair}_fastqc.{extension}",
             sample = SAMPLES_PE,
