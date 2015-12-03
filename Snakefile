@@ -77,8 +77,18 @@ rule all:
 
 
 rule clean:
+    params:
+        links = expand(
+                RAW_DIR + "/{sample}_{end}.fq.gz",
+                sample = SAMPLES_PE,
+                end = "1 2".split()
+            ) + expand (
+                RAW_DIR + "/{sample}.fq.gz",
+                sample = SAMPLES_SE
+            )
     shell:
         """
+        rm -rf {params.links}
         rm -rf data/fastqc_raw
         rm -rf data/fastq_trimmed
         rm -rf data/fastqc_trimmed
@@ -107,8 +117,8 @@ rule raw_make_links_pe:
         "benchmarks/raw/make_links_pe_{sample}.json"
     shell:
         """
-        ln -rs {input.forward} {output.forward} 2> {log}
-        ln -rs {input.reverse} {output.reverse} 2>> {log}
+        ln -s $(readlink -f {input.forward}) {output.forward} 2> {log}
+        ln -s $(readlink -f {input.reverse}) {output.reverse} 2>> {log}
         """ 
 
 
@@ -126,7 +136,7 @@ rule raw_make_links_se:
         "benchmarks/raw/make_links_se_{sample}.json"
     shell:
         """
-        ln -rs {input.single} {output.single} 2>  {log}
+        ln -s $(readlink -f {input.single}) {output.single} 2>  {log}
         """ 
 
 
@@ -188,6 +198,11 @@ rule qc_trimmomatic_pe:
     Note: The cut -f 1 -d " " is to remove additional fields in the FASTQ
     header. It is done posterior to the trimming since the output comes 
     slower than the input is read.
+    Number of threads used:
+        4 for trimmomatic
+        2 for gzip inputs
+        2 for gzip outputs
+        Total: 8
     """
     input:
         forward = RAW_DIR + "/{sample}_1.fq.gz",
@@ -207,7 +222,7 @@ rule qc_trimmomatic_pe:
     log:
         "logs/qc/trimmomatic_pe_{sample}.log" 
     threads:
-        4 # It doesn't perform well above this value
+        8
     shell:
         """
         {trimmomatic} PE \
@@ -238,6 +253,10 @@ rule qc_trimmomatic_se:
         remove low quality regions and reads.
     Input is piped through gzip/pigz.
     Output is piped to gzip.
+    Threads used:
+        4 for trimmomatic
+        1 for gzip input
+        1 for gzip output
     """
     input:
         single = RAW_DIR + "/{sample}.fq.gz",
@@ -252,7 +271,7 @@ rule qc_trimmomatic_se:
     log:
         "logs/qc/trimmomatic_se_{sample}.log" 
     threads:
-        4 # It doesn't perform well above this value
+        6
     shell:
         """
         {trimmomatic} SE \
