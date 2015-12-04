@@ -6,9 +6,11 @@ configfile: "config.yaml"
 # List variables
 ENDS = "1 2 u".split()
 PAIRS = "pe_pe pe_se".split()
-SAMPLES_PE  = config["samples_pe"]
-SAMPLES_SE  = config["samples_se"]
 
+SAMPLES_PE = config["samples_pe"] if config["samples_pe"] is not None else []
+SAMPLES_SE = config["samples_se"] if config["samples_se"] is not None else []
+
+# ERROR when # of samples = 0?
 
 
 # Folder variables
@@ -30,8 +32,8 @@ gzip        = config["software"]["gzip"]
 
 
 
-# Special variables - To make sense on why use all
-ALL_TRHEADS   = 999999 # In case you want to use all threads
+# Special variables - To make sense on why use all threads
+ALL_THREADS   = 999999 # In case you want to use all threads
 BLOCK_THREADS = 999999 # In case you only want to block excessive RAM usage
 
 
@@ -823,12 +825,17 @@ rule assembly_merge_right_and_left:
     Generate the left.fq and right.fq
     left.fq = /1 reads from PE + all SE reads
     right.fq = /2 reads form PE
+    Forced the use of gzip because pigz doesn't have --force option.
+        --force is required because /dev/null isn't a file, doesn't even 
+        have an end, and isn't compressed.
+    Test if SAMPLES_PE is empty because gzip/pigz may because otherwise 
+        it may be waiting something from stdout.
     """
     input:
         forward=  expand(ASSEMBLY_DIR + "/{sample}_1.fq.gz",
-            sample = SAMPLES_PE),
+            sample = SAMPLES_PE) if SAMPLES_PE  else ["/dev/null"],
         reverse=  expand(ASSEMBLY_DIR + "/{sample}_2.fq.gz",
-            sample = SAMPLES_PE),
+            sample = SAMPLES_PE) if SAMPLES_PE  else ["/dev/null"],
         unpaired= expand( # pe_se
             NORM_DIR + "/{sample}.final.pe_se.fq.gz",
             sample = SAMPLES_PE
@@ -847,10 +854,10 @@ rule assembly_merge_right_and_left:
         "benchmarks/assembly/merge_right_and_left.json"
     shell:
         """
-        {gzip} -dc {input.forward} {input.unpaired} > {output.left} 2> {log}
-        {gzip} -dc {input.reverse} > {output.right} 2>> {log}
+        gzip -dfc {input.forward} {input.unpaired} > {output.left} 2> {log}
+        gzip -dfc {input.reverse} > {output.right} 2>> {log}
         """
-
+        
 
 
 rule assembly_run_trinity:
@@ -867,7 +874,7 @@ rule assembly_run_trinity:
     output:
         fasta = protected(ASSEMBLY_DIR + "/Trinity.fasta")
     threads:
-        BLOCK_THREADS
+        ALL_THREADS
     params:
         memory= config["trinity_params"]["memory"],
         outdir= ASSEMBLY_DIR + "/trinity_out_dir"
@@ -967,7 +974,7 @@ rule part_do_partition:
         hashsize=      config["diginorm_params"]["hashsize"],
         n_hashes=      config["diginorm_params"]["n_hashes"]
     threads:
-        BLOCK_THREADS
+        ALL_THREADS
     log:
         "logs/part/do_partition.log"
     benchmark:
@@ -1020,3 +1027,8 @@ rule part_rename_with_partitions:
         
         rm {params.assembly_tmp}
         """
+
+
+rule part:
+    input:
+        assembly = PART_DIR + "/Trinity.fasta"
