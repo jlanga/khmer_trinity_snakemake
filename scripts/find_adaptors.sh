@@ -103,7 +103,7 @@ echo -e \
 > $out_file
 
 parallel --keep-order --tag \
-    gzip -dc {} "|" find_adapters ::: ${raw_dir}/*.fastq.gz \
+    gzip -dc {} "|" find_adapters ::: ${raw_dir}/*.fq.gz \
 >>  $out_file \
 2>  $log_file
 
