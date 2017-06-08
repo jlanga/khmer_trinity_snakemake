@@ -1,5 +1,10 @@
 # khmer_trinity_snakemake
 
+## NOTE
+
+This is an old repo. For a more efficient and automatic approach, go to [smsk_khmer_trinity](https://github.com/jlanga/smsk_khmer_trinity/)
+
+
 ## What's this?
 
 This is a repo containint a Snakemake workflow to assemble RNA-Seq reads.
